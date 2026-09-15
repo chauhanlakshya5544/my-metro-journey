@@ -1,148 +1,22 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>My Metro Journey</title>
-  <link rel="stylesheet" href="style.css">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>My Metro Journey</title><link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="topbar">
-    <div>
-      <h1>🚇 My Metro Journey</h1>
-      <p>Private family travel tracker</p>
-    </div>
-    <button id="logoutBtn" class="secondary hidden">Log out</button>
-  </header>
-
-  <main class="container">
-    <section id="setupNotice" class="card notice">
-      <h2>Connect your database</h2>
-      <p>Open <code>app.js</code> and replace the two Supabase placeholders with your project URL and publishable key. Then deploy the site.</p>
-    </section>
-
-    <section id="loginView" class="card hidden">
-      <h2>Sign in</h2>
-      <p class="muted">Use your own account for updates or your parents' viewer account for read-only access.</p>
-      <form id="loginForm">
-        <label>Email<input id="email" type="email" required></label>
-        <label>Password<input id="password" type="password" required></label>
-        <button type="submit">Sign in</button>
-      </form>
-      <p id="loginMsg" class="message"></p>
-    </section>
-
-    <section id="appView" class="hidden">
-      <div class="status-grid">
-        <div class="card stat">
-          <span>Latest status</span>
-          <strong id="latestStatus">—</strong>
-        </div>
-        <div class="card stat">
-          <span>Current station</span>
-          <strong id="latestStation">—</strong>
-        </div>
-        <div class="card stat">
-          <span>Metro card balance</span>
-          <strong id="cardBalance">—</strong>
-        </div>
-        <div class="card stat">
-          <span>Last update</span>
-          <strong id="lastUpdated">—</strong>
-        </div>
-      </div>
-
-      <section id="adminPanel" class="card hidden">
-        <div class="section-head">
-          <div>
-            <h2>Update travel</h2>
-            <p class="muted">Only the owner account should see this panel.</p>
-          </div>
-        </div>
-
-        <form id="tripForm">
-          <div class="form-grid">
-            <label>Date<input id="tripDate" type="date" required></label>
-            <label>Time<input id="tripTime" type="time" required></label>
-            <label>Status
-              <select id="tripStatus" required>
-                <option>At home</option>
-                <option>Leaving home</option>
-                <option>Reached Dwarka Mor</option>
-                <option>On metro</option>
-                <option>Changed line</option>
-                <option>Reached Vishwavidyalaya</option>
-                <option>Reached destination</option>
-                <option>Returning</option>
-                <option>Reached home</option>
-                <option>Custom</option>
-              </select>
-            </label>
-            <label>Current station<input id="station" list="stations" placeholder="e.g. Rajiv Chowk" required></label>
-            <label>Trip fare (₹)<input id="fare" type="number" min="0" step="0.5" value="0"></label>
-            <label>Card balance after trip (₹)<input id="balance" type="number" min="0" step="0.5" required></label>
-          </div>
-          <label>Note<textarea id="note" rows="2" placeholder="Optional note, e.g. changed at Rajiv Chowk"></textarea></label>
-          <div class="actions">
-            <button type="submit">Save trip update</button>
-            <button type="button" id="refreshBtn" class="secondary">Refresh</button>
-          </div>
-          <p id="saveMsg" class="message"></p>
-        </form>
-
-        <datalist id="stations">
-          <option>Dwarka Mor</option>
-          <option>Nawada</option>
-          <option>Uttam Nagar West</option>
-          <option>Uttam Nagar East</option>
-          <option>Janakpuri West</option>
-          <option>Janakpuri East</option>
-          <option>Tilak Nagar</option>
-          <option>Subhash Nagar</option>
-          <option>Rajouri Garden</option>
-          <option>Rajiv Chowk</option>
-          <option>New Delhi</option>
-          <option>Chawri Bazar</option>
-          <option>Chandni Chowk</option>
-          <option>Kashmere Gate</option>
-          <option>Civil Lines</option>
-          <option>Vidhan Sabha</option>
-          <option>Vishwavidyalaya</option>
-          <option>Other</option>
-        </datalist>
-      </section>
-
-      <section class="card">
-        <div class="section-head">
-          <div>
-            <h2>Trip history</h2>
-            <p class="muted">Newest updates appear first.</p>
-          </div>
-          <button id="exportBtn" class="secondary hidden">Export CSV</button>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th><th>Time</th><th>Status</th><th>Station</th><th>Fare</th><th>Balance</th><th>Note</th>
-              </tr>
-            </thead>
-            <tbody id="historyBody">
-              <tr><td colspan="7" class="muted">No trips yet.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="card safety">
-        <h2>Privacy & safety</h2>
-        <p>Do not put your live exact location, phone number, home address, or other sensitive information into trip notes. For family use, a station-level update is enough.</p>
-      </section>
-    </section>
-  </main>
-
-  <footer>My Metro Journey • Private family travel tracker</footer>
-
-  <script type="module" src="app.js"></script>
-</body>
-</html>
+<header class="topbar"><div><h1>🚇 My Metro Journey</h1><p>Private family travel tracker</p></div><button id="logoutBtn" class="secondary hidden">Log out</button></header>
+<main class="container">
+<section id="setupNotice" class="card notice hidden"><h2>Connect your database</h2><p>Open <code>app.js</code> and add your Supabase project details.</p></section>
+<section id="loginView" class="card hidden"><h2>Sign in</h2><p class="muted">Your account can update trips. Parents can view only.</p><form id="loginForm"><label>Email<input id="email" type="email" required></label><label>Password<input id="password" type="password" required></label><button type="submit">Sign in</button></form><p id="loginMsg" class="message"></p></section>
+<section id="appView" class="hidden">
+<div id="collegeAlert" class="college-alert hidden"><strong>🎓 College reached</strong><span id="collegeAlertText"></span></div>
+<div class="status-grid"><div class="card stat"><span>Latest status</span><strong id="latestStatus">—</strong></div><div class="card stat"><span>Current station</span><strong id="latestStation">—</strong></div><div class="card stat"><span>Metro card balance</span><strong id="cardBalance">—</strong></div><div class="card stat"><span>Last update</span><strong id="lastUpdated">—</strong></div></div>
+<section id="adminPanel" class="card hidden"><div class="section-head"><div><h2>Update travel</h2><p class="muted">Only your owner account can change records.</p></div></div>
+<form id="tripForm"><div class="form-grid"><label>Date<input id="tripDate" type="date" required></label><label>Time<input id="tripTime" type="time" required></label><label>Status<select id="tripStatus" required><option>At home</option><option>Leaving home</option><option>Reached Dwarka Mor</option><option>On metro</option><option>Changed line</option><option>Reached Vishwavidyalaya</option><option>Reached destination</option><option>Returning</option><option>Reached home</option><option>Custom</option></select></label><label>Current station<select id="station" required><option value="">Select station</option></select></label><label>Trip fare (₹)<input id="fare" type="number" min="0" step="0.5" value="0"></label><label>Card balance after trip (₹)<input id="balance" type="number" min="0" step="0.5" required></label></div>
+<label>Note<textarea id="note" rows="2" placeholder="Optional note"></textarea></label><div class="actions"><button type="submit">Save trip update</button><button type="button" id="refreshBtn" class="secondary">Refresh</button></div><p id="saveMsg" class="message"></p></form>
+</section>
+<section class="route-card card"><div class="section-head"><div><h2>Dwarka Mor → Vishwavidyalaya</h2><p class="muted">Blue Line to Rajiv Chowk, then Yellow Line towards Samaypur Badli.</p></div></div><div id="routeStations" class="route-list"></div></section>
+<section class="card"><div class="section-head"><div><h2>Trip history</h2><p class="muted">Parents can filter the history by date.</p></div><div class="actions"><label class="compact">View date<select id="dateFilter"><option value="all">All dates</option></select></label><button id="exportBtn" class="secondary hidden">Export CSV</button></div></div><div id="parentNotifyBox" class="notify-box hidden"><span>🔔 Parent alerts</span><button id="enableNotifyBtn" class="secondary">Enable browser alerts</button><span id="notifyMsg" class="muted"></span></div><div id="historyGroups"></div></section>
+<section class="card safety"><h2>Privacy & safety</h2><p>Station-level updates are safer than sharing exact live coordinates or your home address. Browser alerts work while the parent page is open and notifications are permitted.</p></section>
+</section></main><footer>My Metro Journey • Private family travel tracker</footer><script type="module" src="app.js"></script></body></html>
