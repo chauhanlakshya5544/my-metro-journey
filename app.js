@@ -22,7 +22,7 @@ function buildRoute(){
 async function getProfile(userId){const {data,error}=await supabase.from("profiles").select("role,display_name").eq("id",userId).single();if(error)throw error;return data;}
 async function loadDashboard(initial=false){const {data:{user}}=await supabase.auth.getUser();if(!user)return;const profile=await getProfile(user.id);currentRole=profile.role;show($("loginView"),false);show($("appView"),true);show($("adminPanel"),currentRole==="owner");show($("exportBtn"),currentRole==="owner");show($("logoutBtn"),true);show($("parentNotifyBox"),currentRole==="parent");if(initial)lastSeenTripId=null;await loadTrips(!initial&&currentRole==="parent");}
 async function loadTrips(notifyParent=false){
-  const {data,error}=await supabase.from("trips").select("id,trip_date,trip_time,status,station,fare,balance_after,note,created_at").order("trip_date",{ascending:false}).order("trip_time",{ascending:false}).order("created_at",{ascending:false});
+  const {data,error}=await supabase.from("trips").select("id,trip_date,trip_time,status,station,fare,balance_after,note,created_at,owner_id").order("trip_date",{ascending:false}).order("trip_time",{ascending:false}).order("created_at",{ascending:false});
   if(error){$("historyGroups").innerHTML=`<p class="error">Could not load trips: ${escapeHtml(error.message)}</p>`;return;}
   cachedTrips=data||[];updateDateFilter();renderTrips();const newest=cachedTrips[0];
   if(notifyParent&&newest&&lastSeenTripId&&String(newest.id)!==String(lastSeenTripId)&&newest.status==="Reached Vishwavidyalaya") notifyParentAlert(newest);
@@ -36,7 +36,36 @@ function renderTrips(){
   $("historyGroups").innerHTML=dates.map(date=>`<div class="date-group"><h3>${fmtDate(date)}</h3><div class="table-wrap"><table><thead><tr><th>Time</th><th>Status</th><th>Station</th><th>Fare</th><th>Balance</th><th>Note</th>${currentRole==="owner"?"<th>Action</th>":""}</tr></thead><tbody>${groups[date].map(t=>`<tr><td>${escapeHtml(fmtTime(t.trip_time))}</td><td>${escapeHtml(t.status)}</td><td>${escapeHtml(t.station)}</td><td>${money(t.fare)}</td><td>${money(t.balance_after)}</td><td>${escapeHtml(t.note||"")}</td>${currentRole==="owner"?`<td><button class="danger small delete-btn" data-id="${t.id}">Delete</button></td>`:""}</tr>`).join("")}</tbody></table></div></div>`).join("")||'<p class="muted">No updates for this date.</p>';
   document.querySelectorAll(".delete-btn").forEach(b=>b.addEventListener("click",()=>deleteTrip(b.dataset.id)));
 }
-async function deleteTrip(id){if(currentRole!=="owner"||!confirm("Delete this travel update? This cannot be undone."))return;const {error}=await supabase.from("trips").delete().eq("id",id);$("saveMsg").textContent=error?error.message:"Update deleted.";await loadTrips();}
+async function deleteTrip(id){
+  if(currentRole!=="owner"||!confirm("Delete this travel update? This cannot be undone."))return;
+  $("saveMsg").textContent="Deleting…";
+  const {data:{user},error:userError}=await supabase.auth.getUser();
+  if(userError||!user){$("saveMsg").textContent=`Delete failed: ${userError?.message||"Not signed in."}`;return;}
+
+  // Explicitly match both the trip id and the logged-in owner's id.
+  // This makes an RLS policy such as auth.uid() = owner_id unambiguous.
+  const {data:deletedRows,error}=await supabase
+    .from("trips")
+    .delete({count:"exact"})
+    .eq("id",id)
+    .eq("owner_id",user.id)
+    .select("id");
+
+  if(error){
+    $("saveMsg").textContent=`Delete failed: ${error.message}`;
+    alert(`Delete failed.\n\n${error.message}`);
+    return;
+  }
+
+  if(!deletedRows?.length){
+    $("saveMsg").textContent="Delete failed: no matching owner record was deleted.";
+    alert("The update was not deleted. The row may have a different owner_id or Supabase RLS is blocking the delete.\n\nOpen Supabase → SQL Editor and check the DELETE policy on public.trips.");
+    return;
+  }
+
+  $("saveMsg").textContent="Update deleted.";
+  await loadTrips();
+}
 function notifyParentAlert(trip){$("collegeAlertText").textContent=` — College reached at ${fmtTime(trip.trip_time)}.`;if("Notification"in window&&Notification.permission==="granted")new Notification("My Metro Journey",{body:`🎓 Vishwavidyalaya reached at ${fmtTime(trip.trip_time)}.`});}
 $("enableNotifyBtn")?.addEventListener("click",async()=>{if(!("Notification"in window)){$("notifyMsg").textContent="This browser does not support browser alerts.";return;}const p=await Notification.requestPermission();$("notifyMsg").textContent=p==="granted"?"Browser alerts enabled.":"Permission not granted.";});
 $("dateFilter").addEventListener("change",renderTrips);
