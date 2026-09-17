@@ -13,14 +13,24 @@ const show = (el, yes=true) => el.classList.toggle("hidden", !yes);
 const ROUTE_STATIONS = [
   ["Dwarka Mor","Blue Line"],["Nawada","Blue Line"],["Uttam Nagar West","Blue Line"],["Uttam Nagar East","Blue Line"],["Janak Puri West","Blue Line"],["Janak Puri East","Blue Line"],["Tilak Nagar","Blue Line"],["Subhash Nagar","Blue Line"],["Tagore Garden","Blue Line"],["Rajouri Garden","Blue Line"],["Ramesh Nagar","Blue Line"],["Moti Nagar","Blue Line"],["Kirti Nagar","Blue Line"],["Shadipur","Blue Line"],["Patel Nagar","Blue Line"],["Rajendra Place","Blue Line"],["Karol Bagh","Blue Line"],["Jhandewalan","Blue Line"],["R K Ashram Marg","Blue Line"],["Rajiv Chowk","Blue Line / Yellow Line"],["New Delhi","Yellow Line"],["Chawri Bazar","Yellow Line"],["Chandni Chowk","Yellow Line"],["Kashmere Gate","Yellow Line"],["Civil Lines","Yellow Line"],["Vidhan Sabha","Yellow Line"],["Vishwavidyalaya","Yellow Line"]
 ];
-let currentRole=null, cachedTrips=[], lastSeenTripId=null;
+let currentRole=null, currentUser=null, cachedTrips=[], lastSeenTripId=null;
+let locationWatchId=null, locationSharing=false, parentMap=null, parentMarker=null, parentPollId=null;
+const LIVE_STALE_MS = 90000;
 function escapeHtml(s){return String(s??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function buildRoute(){
   $("routeStations").innerHTML=ROUTE_STATIONS.map((s,i)=>`<div class="route-stop"><span class="route-num">${i+1}</span><span><strong>${escapeHtml(s[0])}</strong><small>${escapeHtml(s[1])}</small></span>${s[0]==="Rajiv Chowk"?'<em>CHANGE</em>':''}</div>`).join("");
   $("station").innerHTML='<option value="">Select station</option>'+ROUTE_STATIONS.map(s=>`<option value="${escapeHtml(s[0])}">${escapeHtml(s[0])} — ${escapeHtml(s[1])}</option>`).join("")+'<option value="Other">Other</option>';
 }
 async function getProfile(userId){const {data,error}=await supabase.from("profiles").select("role,display_name").eq("id",userId).single();if(error)throw error;return data;}
-async function loadDashboard(initial=false){const {data:{user}}=await supabase.auth.getUser();if(!user)return;const profile=await getProfile(user.id);currentRole=profile.role;show($("loginView"),false);show($("appView"),true);show($("adminPanel"),currentRole==="owner");show($("exportBtn"),currentRole==="owner");show($("logoutBtn"),true);show($("parentNotifyBox"),currentRole==="parent");if(initial)lastSeenTripId=null;await loadTrips(!initial&&currentRole==="parent");}
+async function loadDashboard(initial=false){
+  const {data:{user}}=await supabase.auth.getUser();if(!user)return;currentUser=user;
+  const profile=await getProfile(user.id);currentRole=profile.role;
+  show($("loginView"),false);show($("appView"),true);show($("adminPanel"),currentRole==="owner");show($("exportBtn"),currentRole==="owner");show($("logoutBtn"),true);
+  show($("parentNotifyBox"),currentRole==="parent");show($("liveOwnerPanel"),currentRole==="owner");show($("liveParentPanel"),currentRole==="parent");
+  if(initial)lastSeenTripId=null;await loadTrips(!initial&&currentRole==="parent");
+  if(currentRole==="owner") await loadOwnerLocationState();
+  if(currentRole==="parent") await startParentLocationPolling();
+}
 async function loadTrips(notifyParent=false){
   const {data,error}=await supabase.from("trips").select("id,trip_date,trip_time,status,station,fare,balance_after,note,created_at,owner_id").order("trip_date",{ascending:false}).order("trip_time",{ascending:false}).order("created_at",{ascending:false});
   if(error){$("historyGroups").innerHTML=`<p class="error">Could not load trips: ${escapeHtml(error.message)}</p>`;return;}
@@ -38,36 +48,78 @@ function renderTrips(){
 }
 async function deleteTrip(id){
   if(currentRole!=="owner"||!confirm("Delete this travel update? This cannot be undone."))return;
-  $("saveMsg").textContent="Deleting…";
-  const {data:{user},error:userError}=await supabase.auth.getUser();
+  $("saveMsg").textContent="Deleting…";const {data:{user},error:userError}=await supabase.auth.getUser();
   if(userError||!user){$("saveMsg").textContent=`Delete failed: ${userError?.message||"Not signed in."}`;return;}
-
-  // Explicitly match both the trip id and the logged-in owner's id.
-  // This makes an RLS policy such as auth.uid() = owner_id unambiguous.
-  const {data:deletedRows,error}=await supabase
-    .from("trips")
-    .delete({count:"exact"})
-    .eq("id",id)
-    .eq("owner_id",user.id)
-    .select("id");
-
-  if(error){
-    $("saveMsg").textContent=`Delete failed: ${error.message}`;
-    alert(`Delete failed.\n\n${error.message}`);
-    return;
-  }
-
-  if(!deletedRows?.length){
-    $("saveMsg").textContent="Delete failed: no matching owner record was deleted.";
-    alert("The update was not deleted. The row may have a different owner_id or Supabase RLS is blocking the delete.\n\nOpen Supabase → SQL Editor and check the DELETE policy on public.trips.");
-    return;
-  }
-
-  $("saveMsg").textContent="Update deleted.";
-  await loadTrips();
+  const {data:deletedRows,error}=await supabase.from("trips").delete({count:"exact"}).eq("id",id).eq("owner_id",user.id).select("id");
+  if(error){$("saveMsg").textContent=`Delete failed: ${error.message}`;alert(`Delete failed.\n\n${error.message}`);return;}
+  if(!deletedRows?.length){$("saveMsg").textContent="Delete failed: no matching owner record was deleted.";alert("The update was not deleted. Check the DELETE policy on public.trips.");return;}
+  $("saveMsg").textContent="Update deleted.";await loadTrips();
 }
 function notifyParentAlert(trip){$("collegeAlertText").textContent=` — College reached at ${fmtTime(trip.trip_time)}.`;if("Notification"in window&&Notification.permission==="granted")new Notification("My Metro Journey",{body:`🎓 Vishwavidyalaya reached at ${fmtTime(trip.trip_time)}.`});}
+
+async function getLiveLocation(){
+  const {data,error}=await supabase.from("live_locations").select("owner_id,latitude,longitude,accuracy,sharing_enabled,updated_at").eq("owner_id",currentUser.id).maybeSingle();
+  if(error){$("liveOwnerMsg").textContent=`Live location setup error: ${error.message}`;return null;}return data;
+}
+async function loadOwnerLocationState(){
+  const row=await getLiveLocation();
+  const active=!!row?.sharing_enabled;
+  updateOwnerLiveUI(active);
+  if(active) startBrowserLocationWatch();
+}
+function updateOwnerLiveUI(active){
+  locationSharing=active;show($("startLiveBtn"),!active);show($("stopLiveBtn"),active);$("liveStatusBadge").textContent=active?"● LIVE":"● OFF";$("liveStatusBadge").className=`live-badge ${active?"on":"off"}`;
+}
+async function setSharingEnabled(enabled){
+  if(!currentUser)return;
+  const payload={owner_id:currentUser.id,sharing_enabled:enabled,updated_at:new Date().toISOString()};
+  const {error}=await supabase.from("live_locations").upsert(payload,{onConflict:"owner_id"});
+  if(error){$("liveOwnerMsg").textContent=`Could not change sharing: ${error.message}`;return false;}return true;
+}
+function startBrowserLocationWatch(){
+  if(locationWatchId!==null)return;
+  if(!navigator.geolocation){$("liveOwnerMsg").textContent="This browser does not support GPS location.";return;}
+  $("liveOwnerMsg").textContent="Requesting location permission…";
+  locationWatchId=navigator.geolocation.watchPosition(async pos=>{
+    if(!locationSharing)return;
+    const {latitude,longitude,accuracy}=pos.coords;
+    const {error}=await supabase.from("live_locations").upsert({owner_id:currentUser.id,latitude,longitude,accuracy,sharing_enabled:true,updated_at:new Date().toISOString()},{onConflict:"owner_id"});
+    if(error){$("liveOwnerMsg").textContent=`Location update failed: ${error.message}`;return;}
+    $("liveOwnerMsg").textContent=`Live location updated • accuracy ±${Math.round(accuracy||0)} m`;
+  },err=>{
+    const messages={1:"Location permission was denied. Allow location access in your browser settings.",2:"Your location is temporarily unavailable.",3:"Location request timed out."};
+    $("liveOwnerMsg").textContent=messages[err.code]||"Could not get your location.";
+  },{enableHighAccuracy:true,maximumAge:10000,timeout:20000});
+}
+function stopBrowserLocationWatch(){if(locationWatchId!==null){navigator.geolocation.clearWatch(locationWatchId);locationWatchId=null;}}
+async function startLiveLocation(){
+  if(!navigator.geolocation){$("liveOwnerMsg").textContent="Your browser does not support live GPS location.";return;}
+  const ok=await setSharingEnabled(true);if(!ok)return;updateOwnerLiveUI(true);startBrowserLocationWatch();
+  $("liveOwnerMsg").textContent="Live sharing is ON. Keep this website active for continuous browser updates.";
+}
+async function stopLiveLocation(){
+  const ok=await setSharingEnabled(false);if(!ok)return;stopBrowserLocationWatch();updateOwnerLiveUI(false);$("liveOwnerMsg").textContent="Live location sharing is OFF.";
+}
+async function startParentLocationPolling(){
+  if(parentPollId)clearInterval(parentPollId);await refreshParentLocation();parentPollId=setInterval(refreshParentLocation,5000);
+}
+async function refreshParentLocation(){
+  const {data,error}=await supabase.from("live_locations").select("latitude,longitude,accuracy,sharing_enabled,updated_at").eq("sharing_enabled",true).order("updated_at",{ascending:false}).limit(1).maybeSingle();
+  if(error){$("parentLiveMsg").textContent=`Could not load live location: ${error.message}`;return;}
+  if(!data){setParentOffline("Live location is OFF");return;}
+  const age=Date.now()-new Date(data.updated_at).getTime();
+  if(age>LIVE_STALE_MS){setParentOffline(`No fresh GPS update for ${Math.round(age/1000)} seconds`);return;}
+  showParentMap(data.latitude,data.longitude,data.accuracy,data.updated_at);$("parentLiveBadge").textContent="● LIVE";$("parentLiveBadge").className="live-badge on";$("parentLocationText").textContent=`Accuracy ±${Math.round(data.accuracy||0)} m`;$("parentLocationUpdated").textContent=`Updated ${Math.max(0,Math.round(age/1000))} sec ago`;$("parentLiveMsg").textContent="";
+}
+function setParentOffline(msg){$("parentLiveBadge").textContent="● OFFLINE";$("parentLiveBadge").className="live-badge off";$("parentLocationText").textContent="Location unavailable";$("parentLocationUpdated").textContent="—";$("parentLiveMsg").textContent=msg;if(parentMarker&&parentMap)parentMarker.setOpacity(0);}
+function showParentMap(lat,lng,accuracy,updated){
+  if(!parentMap){parentMap=L.map("parentLocationMap").setView([lat,lng],15);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(parentMap);parentMarker=L.marker([lat,lng]).addTo(parentMap);}
+  parentMarker.setOpacity(1).setLatLng([lat,lng]).bindPopup(`Live location<br>Accuracy ±${Math.round(accuracy||0)} m`);parentMap.setView([lat,lng],parentMap.getZoom()<13?15:parentMap.getZoom());setTimeout(()=>parentMap.invalidateSize(),50);
+}
+
 $("enableNotifyBtn")?.addEventListener("click",async()=>{if(!("Notification"in window)){$("notifyMsg").textContent="This browser does not support browser alerts.";return;}const p=await Notification.requestPermission();$("notifyMsg").textContent=p==="granted"?"Browser alerts enabled.":"Permission not granted.";});
+$("startLiveBtn")?.addEventListener("click",startLiveLocation);
+$("stopLiveBtn")?.addEventListener("click",stopLiveLocation);
 $("dateFilter").addEventListener("change",renderTrips);
 $("loginForm").addEventListener("submit",async e=>{e.preventDefault();$("loginMsg").textContent="Signing in…";const {error}=await supabase.auth.signInWithPassword({email:$("email").value.trim(),password:$("password").value});$("loginMsg").textContent=error?error.message:"";});
 $("tripForm").addEventListener("submit",async e=>{e.preventDefault();if(currentRole!=="owner")return;$("saveMsg").textContent="Saving…";const {data:{user}}=await supabase.auth.getUser();const payload={owner_id:user.id,trip_date:$("tripDate").value,trip_time:$("tripTime").value,status:$("tripStatus").value,station:$("station").value,fare:Number($("fare").value||0),balance_after:Number($("balance").value),note:$("note").value.trim()};const {error}=await supabase.from("trips").insert(payload);if(error){$("saveMsg").textContent=error.message;return;}$("saveMsg").textContent="Saved.";$("note").value="";await loadTrips();});
